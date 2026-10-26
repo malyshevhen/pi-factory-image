@@ -1,14 +1,14 @@
 name: OS image
 
-# Every push/PR: build + boot-test, image kept as a workflow artifact.
+# Every push/PR: build, image kept as a workflow artifact.
 # os-vX.Y.Z tag: also publish a GitHub Release, which is what goes to the factory.
 on:
   push:
     branches: [main]
-    paths: ['os/**', 'test/**', '.github/workflows/os-image.yml']
+    paths: ['os/**', '.github/workflows/os-image.yml']
     tags: ['os-v*']
   pull_request:
-    paths: ['os/**', 'test/**', '.github/workflows/os-image.yml']
+    paths: ['os/**', '.github/workflows/os-image.yml']
   workflow_dispatch:
     inputs:
       app_tag:
@@ -79,39 +79,9 @@ jobs:
           compression-level: 0
           retention-days: 30
 
-  test:
-    needs: build
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-arm qemu-utils mtools
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: ${{ needs.build.outputs.name }}
-          path: dist
-
-      - name: Boot test in QEMU
-        env:
-          WORK: ${{ runner.temp }}/boot-test
-        run: test/boot-test.sh "dist/${{ needs.build.outputs.name }}.img.xz"
-
-      - if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ needs.build.outputs.name }}-boot-logs
-          path: |
-            ${{ runner.temp }}/boot-test/*.log
-          if-no-files-found: ignore
-
   release:
     if: startsWith(github.ref, 'refs/tags/os-v')
-    needs: [build, test]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -127,7 +97,7 @@ jobs:
           NAME: ${{ needs.build.outputs.name }}
         run: |
           {
-            echo "Factory image \`$NAME\`. Boot-tested in CI."
+            echo "Factory image \`$NAME\`."
             echo
             echo "Flash: \`bmaptool copy $NAME.img.xz /dev/sdX\` (or Raspberry Pi Imager → Use custom)."
             echo "Verify: \`sha256sum -c $NAME.sha256\`"

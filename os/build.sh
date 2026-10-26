@@ -85,6 +85,7 @@ mkdir -p "$ROOT/tmp/build"
 cp "$HERE/customize.sh" "$HERE/packages.txt" "$ROOT/tmp/build/"
 chroot "$ROOT" /usr/bin/env -i \
   PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
+  PODMAN_IGNORE_CGROUPSV1_WARNING=1 \
   APP_IMAGE="$APP_IMAGE" DEVICE_USER="$DEVICE_USER" \
   DEVICE_HOSTNAME="$DEVICE_HOSTNAME" DEVICE_TIMEZONE="$DEVICE_TIMEZONE" \
   IMAGE_VERSION="$VERSION" BUILD_COMMIT="$BUILD_COMMIT" BASE_URL="$BASE_URL" \

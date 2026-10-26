@@ -1,5 +1,5 @@
 # Quadlet unit: systemd generates myapp.service from this file at boot.
-# @APP_IMAGE@ is replaced by os/build.sh.
+# os/build.sh fills in the image reference below.
 [Unit]
 Description=myapp container
 
