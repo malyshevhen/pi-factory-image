@@ -1,0 +1,140 @@
+name: OS image
+
+# Every push/PR: build + boot-test, image kept as a workflow artifact.
+# os-vX.Y.Z tag: also publish a GitHub Release, which is what goes to the factory.
+on:
+  push:
+    branches: [main]
+    paths: ['os/**', 'test/**', '.github/workflows/os-image.yml']
+    tags: ['os-v*']
+  pull_request:
+    paths: ['os/**', 'test/**', '.github/workflows/os-image.yml']
+  workflow_dispatch:
+    inputs:
+      app_tag:
+        description: App image tag to preload
+        default: stable
+
+permissions:
+  contents: read
+
+concurrency:
+  group: os-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_IMAGE: ghcr.io/${{ github.repository }}/app:${{ inputs.app_tag || 'stable' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    outputs:
+      name: ${{ steps.version.outputs.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/os-v* ]]; then
+            v=${GITHUB_REF_NAME#os-v}
+          else
+            v=0.0.0-${GITHUB_RUN_NUMBER}.g${GITHUB_SHA::7}
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "name=pi-factory-$v" >> "$GITHUB_OUTPUT"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bmap-tools e2fsprogs xz-utils
+
+      - name: Load config
+        run: grep -vE '^\s*(#|$)' os/config.env >> "$GITHUB_ENV"
+
+      - name: Cache base image
+        uses: actions/cache@v6
+        with:
+          path: base.img.xz
+          key: base-${{ env.BASE_SHA256 }}
+
+      - name: Download base image
+        run: |
+          [ -f base.img.xz ] || curl -fL --retry 3 -o base.img.xz "$BASE_URL"
+          echo "$BASE_SHA256  base.img.xz" | sha256sum -c
+
+      - name: Build image
+        env:
+          DEVICE_SSH_AUTHORIZED_KEYS: ${{ vars.DEVICE_SSH_AUTHORIZED_KEYS }}
+          BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          sudo --preserve-env=APP_IMAGE,DEVICE_SSH_AUTHORIZED_KEYS,BUILD_COMMIT \
+            os/build.sh base.img.xz dist "${{ steps.version.outputs.version }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.version.outputs.name }}
+          path: dist/
+          compression-level: 0
+          retention-days: 30
+
+  test:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-arm qemu-utils mtools
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.name }}
+          path: dist
+
+      - name: Boot test in QEMU
+        env:
+          WORK: ${{ runner.temp }}/boot-test
+        run: test/boot-test.sh "dist/${{ needs.build.outputs.name }}.img.xz"
+
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.build.outputs.name }}-boot-logs
+          path: |
+            ${{ runner.temp }}/boot-test/*.log
+          if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/os-v')
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.name }}
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ needs.build.outputs.name }}
+        run: |
+          {
+            echo "Factory image \`$NAME\`. Boot-tested in CI."
+            echo
+            echo "Flash: \`bmaptool copy $NAME.img.xz /dev/sdX\` (or Raspberry Pi Imager → Use custom)."
+            echo "Verify: \`sha256sum -c $NAME.sha256\`"
+            echo
+            echo '```'
+            sed '/^$/q' "dist/$NAME.manifest.txt"
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "$NAME" --notes-file notes.md

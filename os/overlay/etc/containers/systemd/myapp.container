@@ -1,0 +1,28 @@
+# Quadlet unit: systemd generates myapp.service from this file at boot.
+# @APP_IMAGE@ is replaced by os/build.sh.
+[Unit]
+Description=myapp container
+
+[Container]
+ContainerName=myapp
+Image=@APP_IMAGE@
+# The image is preloaded, so first boot works offline; only pull if it's gone.
+Pull=missing
+# Checked by podman-auto-update.timer; rolled back if the new image fails.
+AutoUpdate=registry
+Network=host
+HealthCmd=wget -q -O /dev/null http://127.0.0.1:8080/
+HealthInterval=30s
+HealthStartPeriod=60s
+# The unit only becomes active once the container is healthy, so a broken
+# update fails the restart and auto-update rolls back to the previous image.
+Notify=healthy
+
+[Service]
+Restart=always
+RestartSec=5
+# First start on slow SD cards can take a while.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

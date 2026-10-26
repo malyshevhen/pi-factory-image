@@ -1,0 +1,13 @@
+# Hello-world app: serves its own version on :8080.
+# Replace with the real application; keep the version label and a health endpoint.
+FROM docker.io/library/alpine:3.24
+
+ARG APP_VERSION=dev
+LABEL org.opencontainers.image.version=$APP_VERSION
+
+RUN apk add --no-cache busybox-extras \
+ && mkdir -p /www \
+ && echo "hello from myapp ${APP_VERSION}" > /www/index.html
+
+EXPOSE 8080
+CMD ["httpd", "-f", "-v", "-p", "8080", "-h", "/www"]

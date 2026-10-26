@@ -1,0 +1,4 @@
+#cloud-config
+# Applied by cloud-init once per device on first boot. Lives on the FAT boot
+# partition, so it can be edited after flashing if a batch needs it.
+# os/build.sh appends ssh_authorized_keys for the default user; keep it last.

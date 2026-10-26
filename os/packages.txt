@@ -1,0 +1,2 @@
+# Packages installed into the image (one per line, comments allowed).
+podman
